@@ -1,0 +1,302 @@
+---
+title: "Book notes chapter 9"
+author: "Dustin Duncan"
+date: "2024-02-28"
+output: html_document
+---
+
+```{r, setup }
+knitr::opts_chunk$set(echo = TRUE)
+rm(list = ls())
+library(tidyverse)
+library(rethinking)
+library(bayesplot)
+source("../helper.R")
+```
+
+# Chapter 9: Markov Chain Monte Carlo
+
+## HMC: Needs two functions and two settings 
+First function: Computes log-probability of the data and parameters
+  - Where p(x | a,b) is the Gaussian density of x at mean a and standard deviation b
+Second Function: A gradient, which is just the slop in all directions at the current position 
+  - Can differentiate relative to mu_x and then mu_y and now you have your slopes
+First setting: A choice of number of leapfrog steps 
+Second setting: A choice of step size for each leapfrog step
+  - Each path in the simulation is divided up into a number of leapfrog steps - 
+  if you choose many steps, the path will be long. Choose few, it will be short
+  - Size of each step is determined by the step size (how sharply the algorithm can turn)
+  *Have to tune the leapfrog steps and step size in each application to not get the U-turn problem*
+
+Fancy HMC samplers like stan and its rstan package do two things for you: 
+1) they choose the leapfrog and stepsize for you so that they don't experience U-turns. They do this by conducting a warmup phase in which they try to figure out which stepsize explores the posterior efficiently. 
+  - This is not a burn-in. Burn-in samples are just samples, they are part of 
+  the posterior 
+  - Stans warmup phase does not produce useful samples - Its just tuning the simulation
+2) They use an algorithm to adaptively set the number of leapfrog steps --> called a no-U-turn sampler, or NUTS.
+  - It uses the shape of the posterior to infer when the path is turning around,
+  then it stops the simulation
+  
+### 9.3.3 Limitations 
+HMC requires continuous parameters --> no discretes
+  - HMC can still sample from those models, but you have to change how you code them
+  
+## 9.4 Easy HMC: 'ulam'
+Ulam is an interface thats part of the rethinking package that allows you to compile lists of formulas, like the ones we've been using to construct quap estimates, into *Stan HMC code*
+
+To use ULAM --> You should preprocess any variable transformations, and you should construct a clean data list with only the variables you will use. 
+  - *When using ulam, you can use the same helper functions as quap: extract.samples, extract.prior, link, sim, and others*
+  - Right now we need to learn the model structure. 
+  
+Lets see how it works using the terrain ruggedness example:
+```{r}
+library(rethinking)
+data(rugged)
+
+d <- rugged
+
+d$log_gdp <- log(d$rgdppc_2000)
+
+## Reducing it to cases (nations) that have the outcome variable of interest 
+dd <- d[complete.cases(d$rgdppc_2000) , ] 
+
+dd$log_gdp_std <- dd$log_gdp / mean(dd$log_gdp) # continuous 
+
+
+dd$rugged_std <- dd$rugged / max(dd$rugged) # continuous
+
+
+dd$cid <- ifelse( dd$cont_africa==1 , 1 , 2 )
+```
+
+Repeat the procedure for fitting the interaction model. 
+
+Aiming to predict log GDP with terrain ruggedness, continent, and the interaction of the two. 
+```{r}
+m8.3 <- quap(alist(
+  log_gdp_std ~ dnorm(mu, sigma),
+  mu <- a[cid] + b[cid]*(rugged_std - 0.215),
+  a[cid] ~ dnorm(1, 0.1),
+  b[cid] ~ dnorm(0, 0.3),
+  sigma ~ dexp(1)
+), data = dd
+)
+precis(m8.3, depth = 2)
+```
+
+### 9.4.1 Preparation 
+
+How to fit this model using HMC? There will be no more quadratic approximation - if the posterior distribution is non-Gaussian, then we will get whatever non-Gaussian shape it has. 
+
+Use exactly the same formula list as before, but do two additional things:
+1) Preprocess all variable transformations.
+
+2) Once you have the variables ready, make a new trimmed down dataframe that contains only the variables you will actually use to fit the model. 
+  - Technically not required but helps in avoiding common problems 
+  - I.e. if any of the unused variables have NA values then Stan wont work
+  
+We've pre-transformed the variables already. Now we need a slim list of the variables we're going to use:
+```{r}
+dat_slim <- list(
+  log_gdp_std = dd$log_gdp_std,
+  
+  rugged_std = dd$rugged_std,
+  
+  cid = as.integer(dd$cid)
+)
+
+str(dat_slim)
+```
+Its better to use a list than a dataframe because the elements in a list can be any length. 
+  - With df's, all variables need to be the same length
+  - Some multilevel models have variables of different lengths.
+  
+### 9.4.2 Sampling from the Posterior 
+
+Get samples from the posterior distribution:
+```{r}
+m9.1 <- ulam(
+  alist(
+    log_gdp_std ~ dnorm(mu, sigma),
+    mu <- a[cid] + b[cid]*(rugged_std - 0.215),
+    a[cid] ~ dnorm(1, 0.1),
+    b[cid] ~ dnorm(0, 0.3),
+    sigma ~ dexp(1)
+  ), data = dat_slim, chains = 1
+)
+```
+
+After these messages, ulam returns an object that contains a bunch of summary information, as well as samples from the posterior distribution. 
+
+Summarize same as quap
+```{r}
+precis(m9.1, depth = 2)
+```
+
+These estimates are very similar to the quadratic approximation.
+*Note the two new columns: n_eff and Rhat4*
+  - These columns provide MCMC diagnostic criteria to help tell you how well the
+  sampling worked 
+  - n_eff is a crude estimate of the number of independent samples you got
+  - Rhat4 is an indicator of the convergence of the Markov chains 
+    - It should approach 1 from above if all is well 
+
+### 9.4.5 Sampling again, in parallel 
+We want to run multiple chains at once, by using each of the 4 cores of our CPU
+  - To do this we increase the number of chains and add a 'cores' argument
+```{r}
+m9.1 <- ulam(
+  alist(
+    log_gdp_std ~ dnorm(mu, sigma),
+    mu <- a[cid] + b[cid]*(rugged_std - 0.215),
+    a[cid] ~ dnorm(1, 0.1),
+    b[cid] ~ dnorm(0, 0.3),
+    sigma ~ dexp(1)
+  ), data = dat_slim, chains = 4, cores = 4
+)
+```
+
+'show' will remind you of the model formula and also show how long each chain took to run:
+```{r}
+show(m9.1)
+```
+
+### 9.4.4 Visualization
+
+By plotting the samples you can get a direct appreciation for how Gaussian (quadratic) the actual posterior density has turned out to be. 
+
+Use 'pairs' on the model object --> R displays parameter names and parameter correlations:
+```{r}
+pairs(m9.1)
+```
+
+Along the diagonal is the smoothed histogram of each parameter, along with its name.
+  - In the lower triangle of the matrix, the correlation between each pair of parameters
+  is shown, with stronger correlations indicated by relative size. 
+  
+### 9.4.5 Checking the Chain
+
+One of the ways to do this is by visualizing your samples:
+
+**First option is a trace plot:**
+```{r}
+traceplot( m9.1 )
+```
+
+This is the path the chain took through each dimension of parameter space. 
+
+The first portion of the plot in gray is the adaption portion of samples. They are not reliable to use for inference --> automatically discarded by extract.samples()
+
+How to determine if its healthy? Look for three things 
+
+1) Stationarity
+  - The path of each chain staying within the same high probability portion of
+  the posterior distribution
+  - These traces all stick around a very central tendency, the center of gravity
+  fir each dimension of the posterior --> mean value of chain is quite stable 
+2) Good mixing 
+  - Chain rapidly explores the full region, rather than wandering around 
+3) Convergence
+  - Means that multiple, independent chains stick around the same region of high 
+  probability 
+  
+**Second option for visualization: Trace rank plot, or trank plot**
+What this does is take all the samples for each individual parameter and rank them.
+The lowest sample gets rank 1 --> The largest gets the maximum rank (the number of samples across all chains) --> then draw a histogram of the ranks for each individual chain --> If the chains are doing what they're supposed to then the histograms should look the same 
+
+```{r}
+trankplot(m9.1)
+```
+
+Horizontal is rank, from 1 to the number of samples across all chains (2000 here)
+
+Vertical axis is the frequency of ranks in each bin of the histogram 
+
+**This trank plot is what we're looking for: histograms that overlap and stay in the same range** 
+
+## 9.5 Care and Feeding of your Markov Chain
+
+HMC makes it easy to tell when the algorithm goes wrong --> lets look at some and along the way establish the correct guidelines for running them 
+
+### 9.5.1 How many samples do you need? 
+
+Control the number of samples in the chain by using iter and warmup parameters defaults are 'iter' = 1000 and 'warmup' = 1/2 *iter = 500 warmup samples and 500 real samples to use for inference. 
+
+How many samples do we need for accurate inference about the posterior distribution? 
+Firstly, what matters is the effective number of samples, not the raw number
+  - Because if the samples are anti-correlated then the amount of n_eff can be 
+  larger than your actual number of samples. 
+Secondly, what do you want to know?
+  - If all you want are posterior means, then it doesn't take much time to get them. 
+  - But if you care about the exact shape in the tails of the posterior like the 
+  99th percentile then you're going to need a lot more.
+  
+If you get a warnging about 'tail ESS', then it means that the program is nervous about the quality of extreme intervals like 95%. Sampling more usually helps.
+
+The warmup setting is more subtle. Usually about half of your total samples can be devoted to warmup but more warmup = more efficient sampling (for the most part)
+
+#### Rethinking: Warm-up is not burn-in 
+
+With other algorithms you trim off the front of the chain, the 'burn-in' phase. This hopefully removes any influence of which starting value was chosen for a parameter.
+
+What Stan does is quite different. The warmup sampling is quite different from after, and are not representative of the target posterior distribution, no matter how long the warmup continues. 
+  - They aren't burning in, but more like cycling the motor to heat things up
+  and get ready for sampling 
+  - when the real sampling begins, the samples will be immediately from the target
+  distribution, assuming adaptation was successful 
+
+### 9.5.2 How many chains do you need? 
+
+Very common to run more than one markov chain. You can run up to 4 (if you have four cores) simulataneously, or sequentially with one core. 
+
+3 common answers 
+1) When debugging a model, only use a single chain --> there are some error messages that dont pop up unless you only use one chain 
+
+2) When deciding whether the chains are valid, use more than one chain
+
+3) When you begin the final run that you'll make inferences from, you only really need one chain. 
+
+Explanation: 
+When you first try to sample from a chain, you want to check the trace plot to make sure that its working right. In this case, you'd want to run multiple chains (3-4) so that you can check that they all converge to the same distribution 
+
+Once you learn how many warmups and samples you'll need, its more worth it to run one long chain because the warmup which takes the longest and then is thrown away will only be done once rather than multiple times. For inference it doesnt really matter 
+
+
+#### Rethinking: Convergence diagnostics 
+
+When n_eff is much lower than the actual number of iterations, it means the chains are inefficient, but they still can be working properly. 
+
+When Rhat is above 1.00, it usually indicates that the chains haven't converged, and the samples shouldn't be trusted. 
+  - Also Rhat can reach 1 for an invalid chain. So be careful I suppose 
+  
+### 9.5.3 Taming a wild chain
+
+One common problem with some models is that there are broad, flat regions of the posterior density. 
+  - This happens when you use flat priors 
+  - The result is a wandering markov chain that erratically samples
+  extremely positive and extremely negative parameter values.
+  
+  - When this happens you get divergent transitions. 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

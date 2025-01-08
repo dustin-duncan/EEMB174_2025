@@ -1,0 +1,408 @@
+---
+title: "chapter_3_code"
+author: "Dustin Duncan"
+date: "2024-01-09"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+install.packages("rstan", repos = c("https://mc-stan.org/r-packages/", getOption("repos")))
+```
+
+
+
+```{r}
+install.packages("remotes")
+remotes::install_github("stan-dev/cmdstanr")
+install.packages("cmdstanr")
+install.packages(c("coda","mvtnorm","devtools","loo"))
+library(devtools)
+devtools::install_github("rmcelreath/rethinking")
+```
+
+
+```{r}
+library(rethinking)
+```
+
+
+
+
+## Sampling from the Posterior
+
+Generating our posterior from the original worlds data 
+```{r}
+p_grid <- seq(from = 0, to = 1, length.out = 1000)
+
+prob_p <- rep(1, 1000)
+
+prob_data <- dbinom(6, size = 9, prob = p_grid)
+
+posterior <- prob_p * prob_data
+
+posterior <- posterior / sum(posterior)
+```
+
+Now we wish to draw 10,000 samples from this data 
+
+```{r}
+samples <- sample(p_grid, prob = posterior, size = 1e4, replace = TRUE)
+```
+
+For this code, sample is pulling random values (percentages of water on earth) from a vector. The vector is p_grid, and the probability of each value comes from the posterior, which we just computed. 
+
+Now lets plot it 
+```{r}
+plot(samples)
+```
+
+```{r}
+dens(samples)
+```
+
+The estimated density is very similar to the ideal posterior we calculated earlier. 
+
+All we've done here is crudely represent the posterior density we had already calculated. 
+
+## 3.2 Sampling to Summarize  
+
+### 3.2.1 Intervals of Defined boundaries 
+Suppose we are asked for the posterior probability that the proportion of water is less than 0.5. 
+  You can just add up all of the probabilities where the corresponding parameter value is less than 0.5
+  
+```{r}
+# add up posterior probability where p < 0.5
+
+sum(posterior[p_grid < 0.5])
+```
+
+So about 17% of the posterior probability is below 0.5. This wont always be so easy. Once there is more than one parameter in the posterior distribution, this simple sum is no longer simple. 
+
+Lets see how to perform the same calculation using samples from the posterior. This approach does generalize to complex models with many parameters, so you can use it everywhere. 
+
+Add up all of the samples below 0.5, but also divide the resulting count by the total number of samples. 
+
+AKA: The frequency of parameter values below 0.5:
+```{r}
+sum(samples < 0.5)/1e4
+```
+
+Almost the same answer that the grid approximation provided, but not exactly because the samples drawn from the posterior will be different. 
+
+We can also ask how much posterior probability lies between 0.5 and 0.75:
+```{r}
+sum(samples > 0.5 & samples <0.75) / 1e4
+```
+
+About 61% of the posterior probability lies between 0.5 and 0.75 
+
+### 3.2.2 Intervals of Defined Mass 
+
+- An interval of defined mass is usually defined as a confidence interval. 
+- An interval of posterior probability may instead be called a credible interval, but we are going to call it a COMPATIBILITY INTERVAL. 
+    - What this interval indicates is a range of parameter values compatible         with the model and data.
+    - The posterior intervals report two parameter values that contain between       them a specified amount of posterior probability, a probability mass.
+      - For this type of example its easier to find the answer by using samples         from the posterior than grid approximation 
+      
+- Suppose we want to know the boundaries of the lower 80% posterior probability
+
+```{r}
+quantile(samples, 0.8)
+```
+
+Since we know that the interval starts at 0, we find where the 80th percentile is and get the interval. 0-0.76
+
+What about if we want the middle 80% interval? It lies between the 10th and 90th percentile. 
+```{r}
+quantile(samples, c(0.1, 0.9))
+```
+
+These types of intervals assign equal probability of mass to each tail.
+  - We'll call them percentile intervals
+  - Good: communicating the shape of a distribution that is fairly symmetrical 
+
+Lets calculate the posterior distribution and intervals for observing three waters in three tosses and a uniform (flat) prior. 
+
+Compute it via grid approximation: 
+```{r}
+p_grid2 <- seq(from = 0, to = 1, length.out=1000)
+
+prior2 <- rep(1, 1000)
+
+likelihood2 <- dbinom(3, size = 3, prob = p_grid2)
+
+posterior2 <- likelihood2*prior2
+
+posterior2 <- posterior2 / sum(posterior2)
+
+# Sample from the posterior 
+samples2 <- sample(p_grid2, size = 1e4, replace = TRUE, prob = posterior2)
+```
+
+Lets compute the 50% percentile compatibility intveral. 
+```{r}
+# done with function PI 
+PI(samples2, prob = 0.5)
+```
+
+This interval assigns 25% of the probability mass above and below the interval.     - I.E. The central 50% probability.
+    - Problem: In this example it excludes the most likely parameter values,         near p = 1 (because we got 3 W's in 3 tosses)
+    - So the percentile interval can be misleading when describing the shape of       the posterior distribution
+    
+Now lets compute the 50% highest posterior density interval (HPDI)
+```{r}
+# done with the same syntax but using HPDI command 
+HPDI(samples2, prob = 0.5)
+```
+
+This gives us an interval value that best represents the parameter values most consistent with the data
+    - Also always includes the most probable parameter value 
+    
+##### 95% is a convention. Not a requirement. It encourages readers to conduct unconscious hypothesis tests. 
+
+The two interval types here only look so different because the posterior distribution is highly skewed. If we instead used samples of the posterior distribution for 6 W's in 9 tosses, they would look very similar.
+
+HPDI is sensitive to how many samples you draw from the posterior. I.E. it suffers from simulation variance. 
+
+##### If the choice of interval makes a big difference, you shouldn't be using intervals to summarize the posterior. If the choice of interval leads to different inferences, then you'd be better off just plotting the entire posterior distribution. 
+
+#### What do compatibility intervals mean? 
+
+##### If we repeated the study and analysis a very large number of times, then 95% of the computed intervals would contain the true parameter value.
+
+### 3.2.3 Point Estimates 
+
+The third and final common summary task is to produce point estimates of some kind.
+    - Given the entire posterior distribution, what value should you report?
+    
+The bayesian parameter estimate is precisely the entire posterior distribution, which is not a single number, but instead a function that maps each unique parameter value onto a plausibility value. 
+    - Basically, you don't have to choose a point estimate. It discards information. 
+
+
+Suppose you have to produce a point estimate. There are three common alternative point estimates to produce: 
+
+1) The parameter value with the highest posterior probability, a maximum a posteriori (MAP) estimate. AKA the mode
+2) The median 
+3) The mode
+
+The MAP in this example:
+```{r}
+p_grid2[which.max(posterior2)]
+```
+
+Or if you have samples from the posterior you can approximate the same point:
+
+```{r}
+chainmode(samples2, adj = 0.01)
+```
+
+Why not use the mean or median? You can. But in this case all three are different. 
+
+One principled way to go beyond using the entire posterior as the estimate is to choose a loss function
+    - Loss function: a rule that tells you the cost associated with using any particular point estimate
+    - Different loss functions imply different point estimates 
+    - Loss functions deduct your decision from the correct value 
+    - The loss is proportional to the distance of your decision from the true value. 
+    
+It turns out the parameter that minimizes expected loss is the median of the posterior distribution
+
+##### Calculating expected loss 
+
+Using the posterior to average over our uncertainty in the true value.
+    - We dont know the true value in most cases 
+    
+Supposing we are going off of previous data and our decision is p = 0.05.
+
+Expected loss will be 
+```{r}
+sum(posterior2*abs(0.5-p_grid2))
+```
+
+Posterior contains posterior probabilities and p_grid contains parameter values 
+The above code computes the average weighted loss, where each loss is weighted by its corresponding posterior probability. 
+
+To repeat this calculation for every possible decision, we use the function 'sapply'
+```{r}
+loss <- sapply(p_grid2, function(d)sum(posterior2*abs(d-p_grid2)))
+```
+
+Now "loss" contains a list of loss values, one for each possible decision and we can find the parameter that minimizes the loss
+```{r}
+p_grid2[which.min(loss)]
+```
+
+Turns out that this is the posterior median. 
+
+As we can see:
+```{r}
+median(samples2)
+```
+
+##### In order to decide on a point estimate, we need to pick a loss function. Different loss functions nominate different point estimates. 
+
+Two most common methods are the absolute loss (d-p) as above, and the quadratic loss (d-p)^2, which leads to the posterior mean as the point estimate. 
+
+In principle, scientists dont need to look at loss functions. They dont use them to inform decisions but instead to describe the posterior.
+
+##### Routine questions in statistical inference can only be answered under consideration of a particular empirical context and applied purpose
+
+### 3.3 Sampling to simulate prediction
+
+Samples are commonly used to ease simulation of the models implied observations.
+
+Generating implied observations from a model is useful for at least five reasons: 
+    1) Model Design: We can sample from both the posterior and the prior.            Seeing what the model predicts before the data arrive is the best way to       understand implications of the prior 
+    2) Model checking: Simulating implied observations AFTER the model is             updated with data allows us to check whether the fit worked correctly
+        and to investigate model behavior
+    3) Software validation: To be sure that our model fitting software is             working, it helps to simulate observations under a known model and then
+      attempt to recover the values of the parameters the data were simulated
+      under 
+    4) Research design: if you can simulate observations from your hypothesis,
+    then you can evaluate whether the research design can be effective. I.E. a
+    power analysis
+    5) Forecasting: Estimates can be used to simulate new predictions, for new
+    cases and future observations. these forecasts can be useful as applied
+    prediction as well as model criticism and revision.
+    
+#### 3.3.1 Dummy Data: How to produce simulated observations and how to perform simple model checks 
+
+Summarizing the globe tossing data: A fixed proportion of of water (p) exists and is the target of inference.
+    - Tossing the globe produces observations of water and land that appear in proportion to p and 1-p.
+    
+These assumptions: allow us to infer the plausibility of each possible value of p, after observation; AND allow us to simulate the observations that the model implies.
+    - They allow this because likelihood functions work in both directions 
+
+Likelihood functions:
+    - Given a realized observation, says how plausible the observation is
+    - Given only the parameters, defines a distribution of possible
+    observations that we can sample from to simulate observation
+    
+##### We call simulated data dummy data
+
+This indicates that it is a stand-in for actual data
+    - With the globe-tossing model, the dummy data arises from a binomial
+    likelihood:
+
+$$
+Pr(W|N,p)=\frac{N!}{W!(N-W)!}p^W (1-p)^(N-W)
+$$
+W is an observed count of water and N is the number of tosses.
+
+Supposed N = 2, then there are only three possible observations: 0 water, 1 water, 2 water. You can compute the probability of each for any given value of p
+
+Lets calculate using p = 0.7
+```{r}
+dbinom(0:2, size = 2, prob = 0.7)
+```
+
+This means there is a 9% chance of 0 waters, a 42% chance of 1 water, and a 49% chance of 2 waters
+
+
+Now lets simulate observations using these probabilities
+```{r}
+# Use rbinom function. "r" stands for random, from a binomial distribution
+# 1 is the number of simulations
+rbinom(1, size = 2, prob = 0.7)
+# Can do more than one simulation at a time 
+rbinom(10, size = 2, prob = 0.7)
+# Lets generate 100,000 dummy observations just to verify that each value appears in proportion to its likelihood:
+dummy_w <- rbinom(1e5, size = 2, prob = 0.7)
+table(dummy_w)/1e5
+dummy_w
+```
+
+These values are very close to the likelihoods calculated earlier. 
+
+
+Now lets simulate the sample as before, with 9 tosses:
+```{r}
+dummy_w2 <- rbinom(1e5, size = 9, prob = 0.7)
+simplehist(dummy_w2, xlab = "Dummy Water Count")
+```
+
+Most of the expected observation does not contain water in its true proportion of 0.7. Thats the nature of observation I guess 
+
+Why simulate observations? There are many useful jobs for these samples. 
+    - To examine the implied predictions of a model, we will have to combine them with samples from the posterior distribution 
+
+
+##### Rethinking: Sampling Distributions
+
+In non-bayesian statistics, the sampling distributions are used to make inferences about parameters.
+
+In this book, inferences about parameters are never made directly through the sampling distribution
+    - The posterior distribution is not sampled but deduced logically 
+    - Then samples can be drawn from the posterior to aid inference
+    - Sampling distribution is just a device that produces only small world
+    numbers 
+
+### 3.3.2 Model Checking
+
+Model checking means 
+    1) ensuring the model fitting worked correctly 
+    2) evaluating the adequacy of a model for some purpose
+    - Once you condition a model on data, you can simulate to examine the
+    models empirical expectations
+
+Did the software work? 
+    - You can check by comparing the implied predictions and the data used to fit the model
+    -Trying to predict your actual observations is called retrodiction. 
+      - We dont want our retrodiction to match the observations exactly 
+      - We also dont want it to be wildly different 
+    - There is no way to be certain, but we want to learn to expect a certain
+    pattern of lack of correspondence between retrodictions and observations 
+
+Is the model adequate? 
+    - Its important to look for aspects of the data that are not well described
+    by the models expectations
+    - Imperfect retrodiction is not necessarily a bad thing 
+    - How to combine sampling or simulated observations with sampling
+    parameters from the posterior distribution
+    
+    - We can learn a lot about uncertainty from the entire posterior
+    distribution
+    - The implied predictions of the model are uncertain in two ways 
+      1) Observation uncertainty: There is uncertainty in the predicted
+    observations because even if you know p with certainty, you wont know the
+    next globe toss with certainty (unless p = 0 or p = 1)
+      2) There is uncertainty about p: The uncertainty in p will interact with 
+    the sampling variation, when we try to assess what the model tells us about
+    outcomes 
+      
+    - We want to propagate parameter uncertainty as well evaluate the implied
+    predictions
+    
+#### Posterior Predictive Distribution
+  If you were to compute the sampling distribution of outcomes at each value of p, then you could average all these prediction distributions together using the posterior probabilities of each value of p to get the posterior predictive distribution
+    - Observations are never certain for any value of p, but they do shift around in response to it 
+  The sampling distributions of all values of p are combined using the posterior probabilities to compute the weighted avereage frequency of each possible observation
+    - This gives you a distribution for prediction, but it incorporates all the uncertainty embodied in the posterior distribution for the parameter p 
+    - We dont want to ignore uncertainty about the parameters 
+
+How to do the calculations? 
+
+Simulating predicted observations for a single value of p: 
+```{r}
+w <- rbinom(1e4, size = 9, prob = 0.6)
+```
+
+
+Propagating parameter uncertainty into the predictions 
+```{r}
+# Replacing 0.6 for prob with "samples"
+w <- rbinom(1e4, size = 9, prob = samples)
+```
+
+Since the sampled values appear in proportion to their posterior probabilities, the resulting simulated observations are averaged over the posterior.
+    - The simulated predictions can differ from the globe tossing data in two 
+    ways: 
+    1) The longest run of consecutive water or land observations 
+    2) The amount of switches between water and land
+
+This may cause the model to take longer than we expect to reach the correct proportion than what the posterior distribution would lead us to beleive. 
+
+Model fitting is objective. Model checking is subjective, and requires experience which allows it to be quite powerful. Since golems have terrible imaginations, we need the freedom to engage our own imaginations. 

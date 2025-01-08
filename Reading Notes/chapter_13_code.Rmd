@@ -1,0 +1,263 @@
+---
+title: "Chapter 13 book Notes"
+author: "Dustin Duncan"
+date: "2024-03-06"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+rm(list = ls())
+library(rethinking) 
+library(tidyverse)
+```
+
+## 13.1 Example: Multilevel tadpoles
+
+Data exploring reedfrog tadpole mortality. 
+
+Loading data
+```{r}
+data("reedfrogs")
+d <- reedfrogs
+str(d)
+```
+For now we will only be focused on number surviving 'surv' out of an initial count, 'density'.
+
+There is a lot of variation in the data. Some of the variation comes from the experimental treatment. But a lot of it comes from other sources. Each row is a 'tank', an experimental environment that contains tadpoles. The unmeasured factors in these tanks create variation in survival across tanks, even when all the predictor variables have the same value. 
+
+The tanks are an example of a "cluster variable" --> **multiple observations, the tadpoles in this case, are made within each cluster**
+
+So we have repeat measures and heterogeneity across clusters. If we ignore the clusters, assigning the same intercept to each of them, then we risk ignoring important variation in baseline survival. **This could mask variation associated with other variables** 
+  - If we instead estimate a unique intercept for each cluster, using a dummy
+  variable for each tank, we instead practice anterograde amnesia
+
+The tanks are different but each tank does help us estimate survival in the other tanks. So it doesn't make sense to forget entirely, moving from one tank to another. 
+
+**We wamt to simultaneously estimate both an intercept for each tank and the variation among tanks.**
+  - This will be a varying intercepts model. --> The simplest kind of varying
+  effects.
+  - For each cluster in the data, we use a unique intercept parameter. 
+  - When what we learn about each cluster informs all the other clusters, we learn
+  the prior simultaneous to learning the intercepts.
+  
+Here is a model for predicting tadpole mortality in each tank, using the regularizing priors of earlier chapters.
+
+$$
+\mathrm{S_{i} \sim Binomial(N_{i}, p_{i})} \\ 
+\mathrm{logit(p_{i}) = \alpha_{TANK[i]}} \\ 
+\mathrm{\alpha_{j} \sim Normal(0, 1.5)\space~~  for \space j = 1..48}
+$$
+
+And you can approximate this posterior using ulam as in previous chapters:
+
+```{r}
+d$tank <- 1:nrow(d)
+
+dat <- list(
+  
+  S = d$surv,
+  
+  N = d$density,
+  
+  tank = d$tank
+)
+
+m13.1 <- ulam(
+  alist(
+    S ~ dbinom(N, p),
+    logit(p) <- a[tank],
+    a[tank] ~ dnorm(0, 1.5)
+  ), data = dat, chains = 4, log_lik = TRUE
+)
+precis(m13.1, depth = 2)
+```
+
+We see 48 different intercepts, one for each tank. To get each tanks expected survival probability, just take one of the a values and then use the logistic transform. So far there is nothing new here 
+
+Now lets do the adaptive model, which adaptively pools information across tanks. All that is required to enable adaptive pooling is to make the prior for the a parameters a function of some new parameters.
+
+Here it is:
+$$
+\mathrm{S_{i} \sim Binomial(N_{i}, p_{i})} \\ 
+\mathrm{logit(p_{i}) = \alpha_{TANK[i]}} \\ 
+\mathrm{\alpha_{j} \sim Normal(\bar{\alpha}, \sigma) \space [adaptive~ prior]} \\ 
+\mathrm{\bar{\alpha} \sim Normal(0, 1.5) \space [prior ~for ~average~ tank]} \\
+\mathrm{\sigma \sim Exponential(1) \space [prior~for~standard~deviation~of~tanks]}
+$$
+
+Notice that the prior for the tank intercepts is now a function of two parameters, abar and sigma. 
+  - Abar is average 
+  - The gaussian distribution with a mean of abar and standard deviation sigma 
+  is the prior for each tank's intercept
+  - But that prior itself has priors for abar and sigma. So there are **two levels** 
+
+So there are two levels in the model, each representing a simpler model. 
+
+In the top level, the outcome is S, the parameters are the vector alpha, and the prior is the third line in the formula above. 
+
+In the second level, the 'outcome' variable is the vector of intercept parameters, alpha. The parameters abar and sigma, and their priors are the fifth and sixth lines in the model above. 
+  - These two parameters are often referred to as hyperparameters. They are 
+  parameters for parameters. 
+
+#### Rethinking: Why Gaussian tanks? 
+
+Using a gaussian here does not force the resulting posterior distribution of alpha parameters to be symmetric or have a gaussian shape. The only information in a gaussian prior (or likelihood) is finite variance. 
+
+This model cannot be fit with a quap. But it can be fit with an ulam
+
+```{r}
+m13.2 <- ulam(
+  alist(
+    S ~ dbinom(N, p),
+    logit(p) <- a[tank],
+    a[tank] ~dnorm(a_bar, sigma),
+    a_bar ~ dnorm(0, 1.5),
+    sigma ~ dexp(1)
+  ), data = dat, chains = 4, log_lik = TRUE
+)
+precis(m13.2, depth = 2)
+```
+
+This model provides posterior distributions for 50 parameters: one overall sample intercept abar, the standard deviation among tanks, sigma, and then 48 per-tank intercepts. 
+
+Lets check WAIC to see the effective number of parameters. We'll compare m13.1 with m13.2 
+
+```{r}
+compare(m13.1, m13.2)
+```
+A few things to note here: First, the multilevel modfel only has 21 effective parameters. There are 28 fewer effective paramters than actual parameters because the prior assigned to each intercept shrinks them all towards the mean abar.
+  - The mean of sigma is around 1.6 --> this is a *regularizing prior*, like
+  you've used in previous chapters, but now the amonut of regularization has been
+  learned from the data itself. 
+
+To appreciate the impact of the adaptive regularization, we will plot and compare the posterior means from both models. 
+```{r}
+# extract Stan samples
+
+
+post <- extract.samples(m13.2)
+
+
+
+# compute mean intercept for each tank
+
+
+# also transform to probability with logistic
+
+
+d$propsurv.est <- logistic( apply( post$a , 2 , mean ) )
+
+
+# display raw proportions surviving in each tank
+
+
+plot(d$propsurv , ylim=c(0,1) , pch=16, xaxt="n", xlab= "tank" , ylab="proportion survival" , col=rangi2 )
+
+axis( 1 , at=c(1,16,32,48) , labels=c(1,16,32,48) )
+
+
+# overlay posterior means
+
+
+points( d$propsurv.est )
+
+# mark posterior mean probability across tanks
+
+abline( h=mean(inv_logit(post$a_bar)) , lty=2 )
+
+# draw vertical dividers between tank densities
+abline( v=16.5 , lwd=0.5 )
+
+abline( v=32.5 , lwd=0.5 )
+
+text( 8 , 0 , "small tanks" )
+
+text( 16+8 , 0 , "medium tanks" )
+
+text( 32+8 , 0 , "large tanks" )
+```
+
+The horizontal axis is tank index from 1-48. 
+
+The vertical is proportion of survivors in a tank. 
+
+The filled blue points show the raw proportions, computed from the observed counts.
+  - These are from the prop-surv column in the dataframe
+  
+The black circles are the varying intercepts 
+
+The horizontal dashed line at about 0.8 is the median survival proportion in the population of tanks, 'alpha'. 
+  - This is not the same as the empirical mean survival.
+
+Three things to note:
+1) The reason all of the estimates are closer to the median line is due to shrinkage, and it results from regularization. 
+
+2) The small tanks have larger differences between the estimates and the empirical blue points, because in the smaller tanks, the varying intercepts shrink more due to the smaller sample sizes. 
+
+3) The farther a blue point is from the dashed line, the greater the distance between it and the corresponding multilevel estimate. Shrinkage is stronger, the further a tank's empirical proportion is from the global average alpha. 
+
+All three of these phenomena arise from a common cause: pooling information across clusters (tanks) to improve estimates. 
+  - What pooling means here is that each tank provides information that can be 
+  used to improve the estimates for all of the other tanks.
+  - Each tank helps in this way, because we made an assumption about how the 
+  varying log-odds in each tank related to all of the others. We assumed a 
+  normal distribution, which allows us to share information (in the small world
+  only) among the clusters. 
+
+What does the inferred population distribution of survival look like? We can visualize it by sampling from the posterior distribution, as usual. 
+
+
+## 13.2 Varying effects and the underfitting/overfitting trade-off 
+
+Varying intercepts are just regularized estimates, but adaptively regularized by estimating how diverse the clusters are while estimating the features of each cluster. 
+
+A major benefit of using varying effects estimates, instead of the empirical raw estimates, is that they provide more accurate estimates of the individual cluster (tank) intercepts. 
+  - On average, the varying effects actually provide a better estimate of the 
+  individual tank (cluster) means. 
+  - This is because the varying intercepts do a better job of trading off 
+  underfitting and overfitting. 
+
+To make this make sense, we will look at the problem of predicting future survival in ponds (what were tanks) from three perspectives. 
+
+1) *Complete pooling*: This means we assume that the population of ponds is invariant, the same as estimating a common intercept for all ponds. 
+  - Suppose you ignore the varying intercepts and just use the overall mean 
+  across all ponds, alpha, to make your predictions for each pond. A lof of data 
+  contributes to your estimate of alpha, so it can be precise. However, your 
+  estimate of alpha is unlikely to exactly match the mean of any particular pond. 
+  - As a result, your overall sample mean underfits the data. --> This pools the
+  data from all ponds to produce a single estimate that is applied to every pond.
+  - Same as assuming the variation among ponds is zero - all ponds are identical
+
+2) *No pooling*: This means we assume that each pond tells us nothing about any other pond. This is the model with amnesia.
+  - Suppose you use the survival proportions for each pond to make predictions.
+  This means using a separate intercept for each pond. In each pond, quite 
+  little data contributes to each estimate, so these estimates are rather 
+  imprecise. 
+  - As a conseqeunce, the error of these estimates is high, and they are rather
+  overfit to the data. --> Standard errors for each intercept can be very large,
+  and in extreme cases even infinite. 
+  - Its like assuming that the variation among ponds is infinite, so nothing 
+  you leanr from one pond helps you predict another.
+
+3) *Partial pooling*: This means using an adaptive regularizing prior, as in the previous section. 
+  - When you estimate varying intercepts, you use partial pooling of information
+  to produce estimates for each cluster that are less underfit than the grand 
+  mean and less overfit than the no-pooling estimates. 
+  - As a consequence, they tend to be better estimates of the true per-cluster
+  means. --> This will especially be true when ponds have few tadpoles in them,
+  because the no pooling estimates will be especially overfit. 
+
+
+
+
+
+
+
+
+
+
+
+
+
+

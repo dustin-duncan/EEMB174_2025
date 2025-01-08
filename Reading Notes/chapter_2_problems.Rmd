@@ -1,0 +1,400 @@
+---
+title: "chapter_2_problems"
+author: "Dustin Duncan"
+date: "2024-01-09"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Getting back on the horse 
+
+#### 2E1: 
+
+2 or 4
+
+1: The probability of rain
+2: The probability of rain, given that it is monday 
+3: The probability of it being monday, given that it is raining 
+4: The probability of rain and it being monday, given that it is monday
+
+#### 2E2: 
+
+3
+
+1: Pr(rain|Monday)
+2: Pr(rain|Monday)
+3: Pr(Monday|rain)
+4: Pr(Monday, rain)
+
+#### 2E3:
+
+1 or 4 
+
+1: the probability that it is monday, given that it is raining
+2: The probability of rain, given that it is monday 
+3: The probability that it is raining and that it is monday 
+4: The probability that it is monday, given that it is raining 
+5: the probability of rain, given that it is a monday 
+
+#### 2E4: 
+
+There is a 70% chance that when we toss the globe and catch it that it will
+land on water rather than land.
+
+#### 2M1: 
+
+Assuming uniform prior for p. Compute and plot the grid approximate posterior distribution for each of the following sets of observations. 
+	Multiply the prior probability of p’ by the likelihood at p’ 
+1.	Define the grid 
+2.	Compute the value of the prior at each parameter value on the grid 
+3.	Compute the likelihood at each parameter value 
+4.	Compute the unstandardized posterior at each parameter value, by multiplying the prior by the likelihood 
+5.	Standardize the posterior by dividing each value by the sum of all values 
+
+(1) W, W, W
+
+```{r}
+# define grid 
+p_grid1 <- seq(from = 0, to = 1, length.out = 20)
+
+# define prior 
+prior1 <- rep(1, 3)
+
+# compute likelihood at each value in grid 
+likelihood1 <- dbinom(3, size = 3, prob = p_grid1)
+
+# compute product of likelihood and prior 
+unstd.posterior1 <- likelihood1 * prior1 
+
+# standardize the posterior so it sums up to 1 
+posterior1 <- unstd.posterior1 / sum(unstd.posterior1)
+
+# display posterior distribution 
+plot(p_grid1, posterior1, type = "b",
+     xlab = "Probability of Water", ylab = "Posterior probability")
+mtext("3 Points")
+```
+
+
+(2) W, W, W, L
+
+```{r}
+# define grid 
+p_grid2 <- seq(from = 0, to = 1, length.out = 20)
+
+# define prior 
+prior2 <- rep(1, 4)
+
+# compute likelihood at each value in grid 
+likelihood2 <- dbinom(3, size = 4, prob = p_grid2)
+
+# compute product of likelihood and prior 
+unstd.posterior2 <- likelihood2 * prior2 
+
+# standardize the posterior so it sums up to 1 
+posterior2 <- unstd.posterior2 / sum(unstd.posterior2)
+
+# display posterior distribution 
+plot(p_grid2, posterior2, type = "b",
+     xlab = "Probability of Water", ylab = "Posterior Probability")
+mtext("4 Points")
+
+```
+
+(3) L, W, W, L, W, W, W
+```{r}
+# define grid 
+p_grid3 <- seq(from = 0, to = 1, length.out = 20)
+
+# define prior
+prior3 <- rep(1, 7)
+
+# compute likelihood at each value in the grid 
+likelihood3 <- dbinom(5, size = 7, prob = p_grid3)
+
+# compute product of likelihood and prior 
+unstd.posterior3 <- likelihood3 * prior3
+
+# standardize the posterior so it sums up to 1 
+posterior3 <- unstd.posterior3 / sum(unstd.posterior3)
+
+# display the posterior distribution 
+plot(p_grid3, posterior3, type = "b",
+     xlab = "Probability of Water", ylab = "Posterior Probability")
+mtext("7 Reps")
+```
+
+#### 2M2: 
+
+Now assume a prior for p that is equal to zero when p < 0.5, and is a positive 
+constant when p >/= 0.5. Compute and plot the posterior grid distribution for 
+each set of observations in the above example. 
+
+(1) W, W, W
+```{r}
+# define grid
+p_grid1.2 <- seq(from = 0, to = 1, length.out = 20)
+
+# define prior
+prior1.2 <- ifelse(p_grid1.2 < 0.5, 0, 1)
+
+# compute likelihood at each value in the grid 
+likelihood1.2 <- dbinom(3, size = 3, prob = p_grid1.2)
+
+# compute product of likelihood and prior 
+unstd.posterior1.2 <- likelihood1.2 * prior1.2
+
+# standardize the posterior so it sums up to 1 
+posterior1.2 <- unstd.posterior1.2 / sum(unstd.posterior1.2)
+
+# display posterior distribution
+plot(p_grid1.2, posterior1.2, type = "b",
+     xlab = "Probability of Water", ylab = "Posterior Probability")
+mtext("3 rep, new prior")
+```
+
+(2) W, W, W, L
+```{r}
+# define grid
+p_grid2.2 <- seq(from = 0, to = 1, length.out = 20)
+
+# define prior 
+prior2.2 <- ifelse(p_grid2.2 < 0.5, 0, 1)
+
+# compute likelihood at each value in the grid 
+likelihood2.2 <- dbinom(3, size = 4, prob = p_grid2.2)
+
+# compute product of likelihood and prior 
+unstd.posterior2.2 <- likelihood2.2 * prior2.2
+
+# standardize the posterior so it sums up to 1 
+posterior2.2 <- unstd.posterior2.2 /sum(unstd.posterior2.2)
+
+# display posterior distribution
+plot(p_grid2.2, posterior2.2, type = "b",
+     xlab = "Probability of Water", ylab = "posterior probability")
+mtext("4 Reps, new prior ")
+```
+
+(3) L W, W, L, W, W, W
+```{r}
+# define grid
+p_grid3.2 <- seq(from = 0, to = 1, length.out = 20)
+
+# define prior 
+prior3.2 <- ifelse(p_grid3.2 < 0.5, 0, 1)
+
+# compute likelihood at each value in the grid 
+likelihood3.2 <- dbinom(5, size = 7, prob = p_grid3.2)
+
+# compute product of likelihood and prior
+unstd.posterior3.2 <- likelihood3.2 * prior3.2 
+
+# standardize the posterior so it sums up to 1 
+posterior3.2 <- unstd.posterior3.2 / sum(unstd.posterior3.2)
+
+# display posterior distribution
+plot(p_grid3.2, posterior3.2, type = "b",
+     xlab = "Probability of Water", ylab = "Posterior Probability")
+mtext("7 Reps, new prior")
+```
+
+#### 2M3: 
+
+There are two globes, one for earth and one for mars. Earth is 70% covered in 
+water, mars is 100% covered in land. One of the globes - you dont know which - 
+was tossed in the air and produced a “land” observation. Assume that each globe
+was equally likely to be tossed. Show that the posterior probability that the 
+globe was the Earth, conditional on seeing “land” (Pr(Earth|land)), is 0.23.
+
+First lets look at the probability of land given earth, probability of land given mars, and the probability of either planet being tossed 
+$$
+Pr(land|Earth)=1-0.7=0.3 \\ Pr(land|Mars)=1 \\ Pr(Earth) = Pr(Mars) = 0.5 
+$$
+
+$$
+Pr(Earth|land) = \frac{Pr(land|Earth)Pr(Earth)}{Pr(land)}= \frac{0.3(0.5)}{Pr(land)}=  \frac{0.15}{Pr(land)}
+$$
+
+$$
+Pr(land) = Pr(land|Earth)Pr(Earth)+Pr(land|Mars)Pr(Mars)\\Pr(land)=0.3(0.5)+1(0.5)=0.65
+$$
+
+$$
+Pr(Earth|land)=\frac{0.15}{0.65}=0.23 
+$$
+
+```{r}
+0.15/0.65
+```
+
+#### 2M4: 
+
+Suppose you have three cards in a bag, each with 2 sides that are either black or white. The color combinations of the three cards are BW, BB, and WW. If you choose a card and the side facing up is black, you could have drawn either the first or second card. If you drew the second card you coudl have drawn the first black side or second black side. As a result, there are three options for the color of the back side of the drawn card. These are: W, and two B options depending on which side of the BB card you drew, either B1 or B2. If you drew B1, the second option would be B2, and if you drew B2, the second option would be B1. As a result, the options for the back side of the drawn card, given that the first side is black, are W, B1, or B2. So 2/3 of the back side options are Black. The math will look like this: 
+
+$$
+Pr(BB)=\frac{BB}{BB+BW+WW}=\frac{2}{2+1+0}=\frac{2}{3}
+$$
+
+
+Here is the R code to calculate it
+```{r}
+card <- c("BB", "BW", "WW")
+ways <- c(2, 1, 0)
+p <- ways / sum(ways)
+sum(p[card == "BB"])
+```
+
+
+#### 2M5: 
+
+Now suppose that there are 4 cards, two of which are BB. In this scenario, there is a way to multiply the probability of drawing a second black card with the new information. Now that you have 2 BB options, the number of ways that you can obtain a second black card are multiplied by 2. So the probability of producing a second black card is as follows 
+
+$$
+Pr(BB)=\frac{BB}{BB+BW+WW+BB}=\frac{2+2}{2+1+0+2}=\frac{4}{5}
+$$
+
+Now doing it with R 
+```{r}
+card2 <- c("BB", "BW", "WW", "BB")
+ways2 <- c(2, 1, 0, 2)
+p2 <- ways2 /sum(ways2)
+sum(p2[card2 == "BB"])
+```
+
+#### 2M6: 
+
+Imagine that the black ink is heavy, so it is less likely to draw a white card than it is a black card. So again assume there are three cards: BB, BW, WW. You conclude after experimentation that for every way there is to pull the BB card from the pile, there are 2 ways to pull the BW card and 3 ways to pull the WW card. Again, suppose that a black card is pulled. Show that the probability of the other side being black is now 0.5.
+
+Lets see the math 
+$$
+Pr(BB)=\frac{BB}{BB+BW+WW}=\frac{2}{(2*1)+(1*2)+(0*3)}=\frac{2}{2+2}=\frac{2}{4}=0.5
+$$
+
+Lets check it out in R code 
+```{r}
+card3 <- c("BB", "BW", "WW")
+ways3 <- c(2, 1, 0)
+prior <- c(1, 2, 3)
+likelihood <- ways3 * prior
+p3 <- likelihood / sum(likelihood)
+sum(p3[card3 == "BB"])
+```
+
+#### 2M7: 
+
+Suppose we are back to our original cards, BB, BW, WW. The first card is drawn and shows a black side facing up. Another card is drawn which shows a white side facing up. Show that the probability that the first card has black on its other side is now 0.75. Use the counting method if you can. Hint: Treat this like the globe tossing example, counting all the ways to see each observation, for each possible first card. 
+
+A: Looking at the counting method. If the first card drawn were the first side of BB, there would be 3 ways that the second card would be white (BW, or either side of WW). If the first card were the second side of BB, there would be an additional 3 ways that the second card drawn would be white (BW, or either side of WW again). If the first card drawn were BW, there would be 2 ways that the second card drawn would be white (First side of WW or second side of WW, because it would not be possible for the second side of itself to be shown). There would be no ways for the first card drawn to be the second side of BW or either side of WW. 
+
+
+Looking at the math: 
+$$
+Pr_1(BB)=\frac{BB}{BB+BW+WW}=\frac{6}{6+2+0}=\frac{6}{8}=0.75
+$$
+
+Again looking at it in R 
+```{r}
+card4 <- c("BB", "BW", "WW")
+ways4 <- c(6, 2, 0)
+p4 <- ways4 / sum(ways4)
+sum(p4[card4 == "BB"])
+```
+
+#### 2H1: 
+
+Suppose there are two species of panda. Both are equally common in the wild and live in the same places. No way to tell them apart. Species A gives birth to twins 10% of the time, and species B gives birth to twins 20% of the time, otherwise birthing singleton infants. Now suppose you are managing a captive breeding program, and a panda of unknown species gives birth to twins. What is the probability that her next birth will be twins?
+
+
+$$
+Pr(A)= 0.5 \\ Pr(twins|A) = 0.1 \\ Pr(B)=0.5 \\ Pr(twins|B) = 0.2 
+$$
+
+Lets calculate the marginal probability of the first birth being twins 
+$$
+Pr(twins)=Pr(twins|A)*Pr(A)+Pr(twins|B)*Pr(B) \\ Pr(twins)=(0.1)*(0.5)+(0.2)*(0.5) = 0.15
+$$
+We use the new information that the first birth was twins to update Baye's theorem: 
+
+$$
+Pr(A|twins)=\frac{Pr(twins|A)*Pr(A)}{Pr(twins)}=\frac{0.1*0.5}{0.15}=\frac{1}{3} \\ Pr(B|twins)=\frac{Pr(twins|B)*Pr(B)}{Pr(twins)}=\frac{0.2*0.5}{0.15}=\frac{2}{3}
+$$
+
+These values can be used as the new Pr(A) and Pr(B) estimates, because its telling us the probability that the species was either A or B given that it already had twins. Back to the new Pr(twins) calculation
+
+$$
+Pr(twins)=Pr(twins|A)*Pr(A)+Pr(twins|B)*Pr(B) \\ Pr(twins)=(0.1)*(\frac{1}{3})+(0.2)*(\frac{2}{3})= 0.17
+$$
+The probability that the female will give birth to twins, given that she has already given birth to twins, is 0.17. This is much closer to the probability for species B because having already given birth to twins increases the liklihood that she is species B. 
+
+#### 2H2:
+
+Recall all the facts that we have from above. Now calculate the probability that the panda is species A, assuming we have observed only the first birth and that it was twins. 
+
+From our above calculations we determined that the probability that the panda was species A given that it already had twins was 1/3. 
+
+#### 2H3: 
+
+Suppose the same panda mother has a second birth and that it was not twins but a singleton infant. Now compute the posterior probability that the panda was from species A. So in light of new information we are updating our probability that we found above. 
+
+$$
+Pr(single|A)=1-Pr(twins|A)=0.9 \\ Pr(single|B)=1-Pr(twins|B)=0.8 \\ Pr(A)=\frac{1}{3} \\ Pr(B)=\frac{2}{3}
+$$
+
+
+$$
+Pr(single)=Pr(single|A)*Pr(A)+Pr(single|B)*Pr(B) \\ = (0.9)*(\frac{1}{3})+(0.8)*(\frac{2}{3})=0.83
+$$
+Now looking back we calculate the probability that the mother was species A given that she had a singleton infant with the new marginal probability of hanving a singelton 
+
+$$
+Pr(A|single)=\frac{Pr(single|A)*Pr(A)}{Pr(single)}=\frac{0.9*(1/3)}{0.83}=0.36
+$$
+
+The posterior probability that the panda was species A is now 0.36, it moved up from 0.33 with the new information that the second birth was a single baby. This reflects the idea that species A is more likely to give birth to single babies rather than species B. 
+
+#### 2H4: 
+
+A common boast of bayesian inference is that it is able to use all of the data, even if they are of different types.
+
+Now a new veterinarian comes along who claims to have a genetic test that can differentiate between the two species, but like all tests, is imperfect. The probability that it correctly identifies species A is 0.8, and the probability that it correctly identifies species B is 0.65
+
+The vet administers the test and tells you it is positive for species A. First ignore your previous information about births and compute the posterior probability that the species was species A. Then redo your calculation with the information about births as well. 
+
+First we will look at the prior probability of species A or B 
+$$
+Pr(A) = 0.5 \\ Pr(B)=0.5 \\ Pr(correct|A)=0.8 \\ Pr(correct|B)=0.65
+$$
+
+$$
+Pr(correct)=Pr(correct|A)*Pr(A)+Pr(correct|B)*Pr(B) \\ Pr(correct) =(0.8)*(0.5)+(0.65)*(0.5) = 0.73
+$$
+
+$$
+Pr(A|correct)=\frac{Pr(correct|A)*Pr(A)}{Pr(correct)} \\ Pr(A|correct)= \frac{(0.8)*(0.5)}{0.73}=0.55
+$$
+
+The new posterior probability that the panda is species A is 0.55 rather than 0.5.
+
+So we know that the posterior probability that the panda was species A is 0.55 without birthing information.
+
+
+Using the birthing information to update our priors for species A and B
+$$
+Pr(correct|A)=0.8 \\ Pr(correct|B)=0.65 \\ Pr(A)=0.36 \\Pr(B)=1-Pr(A)=1-0.36=0.64
+$$
+
+Now we do the same process again using our updated values:
+$$
+Pr(correct)=Pr(correct|A)*Pr(A)+Pr(correct|B)*Pr(B) \\ Pr(correct)=(0.8)*(0.36)+(0.65)*(0.64) = 0.704
+$$
+Take this to calculate the probability that it is A given that its correct 
+
+$$
+Pr(A|correct)=\frac{Pr(correct|A)*Pr(A)}{Pr(correct)} \\ Pr(A|correct) = \frac{(0.8)*(0.36)}{0.704}=.409
+$$
+
+So the probability that it correctly identifies Panda A with the birthing information is lower than the initial probability. This means that the new method might be overestimating the likelihood of species A.

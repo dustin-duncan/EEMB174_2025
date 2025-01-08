@@ -1,0 +1,602 @@
+---
+title: "Chapter 6 Code"
+author: "Dustin Duncan"
+date: "2024-02-14"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(rethinking)
+library(ggplot2)
+library(dplyr)
+```
+
+# 6: the Haunted DAG and the Causal Terror 
+
+How could the most newsworthy studies be the least trustworthy? If any peer reviewers care about both trustworthiness and newsworthiness, then the action of selection itself is enough to make the most newsworthy studies the least trustworthy. 
+--> THis is our segway into the perils of multiple regression 
+
+Suppose a grant review panel receives 200 research proposals. Among these proposals, there is no correlation at all between trustworthiness and newsworthiness. The panel weighs trustworthiness and newsworthiness equally. Then they rank the proposals by their combined scores and select the top 10% for funding
+  - McElreatht simulates this and finds a negative correlation (-0.77) between 
+  trustworthiness and newsworthiness of the top 10%. WHY?
+    - If the only way to cross a threshold is to score high, its more likely to
+    score high on one item than both 
+    
+This is referred to as **Berkson's Paradox** aka the 
+**Selection Distortion effect**
+
+  - This can happen inside multiple regression because adding a predictor 
+  induces statistical selection within the model, a phenomenon that goes by the
+  name **Collider Bias**
+
+You musn't just add variables to a regression without a clear idea of a causal model
+
+This chapter will look at **multicollinearity**, **post-treatment bias**, 
+and **collider bias**
+
+## 6.1 Multicollinearity 
+
+Indicates a very strong association between two or more predictor variables. 
+i.e. their association conditional on the other variables in the model 
+
+   - Consequence is that the posterior distribution will seem to suggest that 
+   none of the variables reliably associate with the outcome, even if all of the 
+   variables are in reality strongly associated with the outcome 
+  - Makes it difficult to understand 
+
+### 6.1.1 Multicollinear legs 
+
+Suppose that you're trying to predict someones height using the length of their legs. 
+
+  - Surely it is associated with leg length, but once you put both legs into the model
+  something vexing will happen
+  
+```{r, Code 6.2}
+
+N <- 100 # number of individuals
+
+
+set.seed(909)
+
+
+height <- rnorm(N,10,2) # sim total height of each
+
+
+leg_prop <- runif(N,0.4,0.5) # leg as proportion of height
+
+
+leg_left <- leg_prop*height + # sim left leg as proportion + error
+rnorm( N , 0 , 0.02 )
+
+
+leg_right <- leg_prop*height + # sim right leg as proportion + error
+rnorm( N , 0 , 0.02 )
+
+
+# combine into data frame
+
+
+d <- data.frame(height,leg_left,leg_right)
+```
+
+What do we expect? On avg, legs are 45% of a persons height (in this data). So we should expect the beta coefficient that measures the assocciation of a leg with height to end up around the average height (10) divided by 45% of the average height (4.5). So about 2.2
+
+```{r}
+m6.1 <- quap(
+  alist(
+    height ~ dnorm(mu, sigma),
+    mu <- a + bl*leg_left + br*leg_right,
+    a ~ dnorm(10, 100),
+    bl ~ dnorm(2, 10),
+    br ~ dnorm(2, 10),
+    sigma ~ dexp(1)
+  ), data = d
+)
+precis(m6.1)
+```
+
+Lets plot it to see:
+```{r, R code 6.4}
+plot(precis(m6.1))
+
+```
+
+
+
+
+Recall what we are asking with a multiple regression - *What is the value of knowing each predictor, after already knowing all of the other predictors?*
+
+So in this case the question becomes *What is the value of knowing each leg's length, after already knowing the other leg's length?*
+
+Now lets look at the joint posterior distribution for bl and br:
+
+```{r, R code 6.5}
+post <- extract.samples(m6.1)
+plot(bl ~ br, post, col=col.alpha(rangi2,0.1) , pch=16)
+```
+
+The posterior distirbution for these two parameters is highly correlated, with all of the plausible values of bl and br lying along a narrow ridge. When bl is large, then br must be small, and vise versa. 
+
+Since both leg variables contain almost exactly the same information, if you insist on including both in a model, then there will be a practically infinite number of combinations of bl and br that produce the same predictions.
+
+How do we fix this? We can instead of adding their individual effects, create one joint effect on height:
+
+```{r, R code 6.6}
+sum_blbr <- post$bl + post$br
+dens( sum_blbr , col=rangi2 , lwd=2 , xlab= "Sum of bl and br")
+```
+
+Now the posterior mean is in the right neighborhood of around 2, and the sd is much smaller than it is for either component of the sum.
+
+If you fit it with only one leg length variable, you get approximately the same posterior
+
+```{r, R code 6.7}
+m6.2 <- quap(
+  alist(
+    height ~ dnorm(mu, sigma),
+    mu <- a + bl*leg_left,
+    a ~ dnorm(10, 100),
+    bl ~ dnorm(2, 10),
+    sigma ~ dexp(1)
+  ), data = d
+)
+precis(m6.2)
+```
+
+Summary: **When two predictor variables are very strongly correlated (conditional on other variables in the model), including both in a model may lead to confusion.**
+
+The posterior then tells you that the question you asked cannot be answered with these data.
+*It predicts fine, but doesn't make any claims about which leg is more important*
+
+### 6.1.2 Multicollinear Milk
+
+The problem that arises in real data sets is that we may not anticipate a clash between highly correlated predictors.
+  - This may lead us to conclude that from the posterior, neither predictor is 
+  important 
+  
+Returning to the primate milk data from earlier in the chapter:
+
+```{r, R code 6.8}
+data(milk)
+
+d <- milk
+
+d$K <- standardize(d$kcal.per.g)
+d$F <- standardize(d$perc.fat)
+d$L <- standardize(d$perc.lactose)
+```
+
+We are concerned with the percent fat and percent lactose variables
+
+Modeling kcal as a function of fat and lactose, but in two bivariate regressions
+
+```{r}
+#kcal regressed on fat
+
+m6.3 <- quap(
+  alist(
+    K ~ dnorm(mu, sigma),
+    mu <- a +bF*F,
+    a ~ dnorm(0, 0.2),
+    bF ~ dnorm(0, 0.5),
+    sigma ~ dexp(1)
+  ), data = d
+)
+
+#kcal regressed on lactose
+
+m6.4 <- quap(
+  alist(
+    K ~ dnorm(mu, sigma),
+    mu <- a +bL*L,
+    a ~ dnorm(0, 0.2),
+    bL ~ dnorm(0, 0.5),
+    sigma ~ dexp(1)
+  ), data = d
+)
+
+precis(m6.3)
+precis(m6.4)
+```
+
+The posterior distributions of bF and bL are basically mirrored. bF is as positive as bL is negative. 
+
+Given the strong association of each predictor with the outcome, we might conclude that both variables are reliable predictors of total energy in milk, across species. 
+  - **The more fat, the more kilocalories in the milk.** 
+  - **The more lactose, the fewer kilocalories in milk.**
+
+What happens when we place both predictor variabels in the same regression model?
+
+```{r, R code 6.10}
+m6.5 <- quap(
+  alist(
+    K ~ dnorm(mu, sigma),
+    mu <- a + bF*F + bL*L,
+    a ~ dnorm(0, 0.2),
+    bF ~ dnorm(0, 0.5),
+    bL ~ dnorm(0, 0.5),
+    sigma ~ dexp(1)
+  ), data = d
+)
+precis(m6.5)
+```
+
+Now both of their posterior means are closer to zero. And the sd for both parameters is twice a large as the bivariate model. 
+
+The posterior distribution now ends up describing a long ridge of combinations of bF and bL that are equally plausible. 
+
+```{r, R code 6.11}
+pairs( ~ kcal.per.g + perc.fat + perc.lactose , data=d , col=rangi2 )
+```
+
+Vertical axis --> variable on the same row 
+Horizontal axis --> variable on the same column 
+
+Notice in top row that percent fat is positively corellated with kcal and percent lactose is negatively corellated with kcal 
+
+The right most scatterplot in the middle row is the percent fat plotted against percent lactose.
+  - They line up almost entirely on the same line 
+  
+**Either helps in predicting kcals, but NIETHER helps as much once you already know the other**
+
+
+## Post-treatment Bias
+
+Thinking about mistaken inferences that arise from *omitting* predictor variables - these are called **Omitted Variable Bias**
+  - The examples from last chapter illustrate it. 
+
+What we are thinking about here are mistakes that arise from *including* predictor variables -
+These are called **included variable bias** 
+
+This type of bias takes several forms - the first is what we just stated above
+
+Suppose for example that you are growing some plants in a greenhouse. You want to know the difference in growth under different antifungal soil treatments, because fungus on the plants tends to reduce their growth. Plants are initially seeded and sprout. Their heights are measured. Then different soil treatments are applied. Final measures are the height of the plant and the presence of fungus. There are four variables of interest here: **initial height**, **final height**, **treatment**, and **presence of fungus**. *Final height* is the outcome of interest. But which of the other variables should be in the model? 
+
+If your goal is to make a causal inference about the treatment, you shouldn’t include the fungus, because it is a post-treatment effect.
+
+```{r, R code 6.13}
+set.seed(71)
+# number of plants
+
+N <- 100
+
+# Simulate initial heights
+
+h0 <- rnorm(N, 10, 2)
+
+
+# Assign treatments and simulate fungus and growth
+
+treatment <- rep(0:1, each = N/2)
+
+fungus <- rbinom(N, size = 1, prob = 0.5 - treatment*0.4)
+
+h1 <- h0 + rnorm(N, 5 - 3*fungus)
+
+# Compose a clean data frame 
+d <- data.frame(h0=h0, h1=h1, treatment=treatment, fungus=fungus)
+
+precis(d)
+```
+
+But it is not principled. Pre-treatment variables can also create bias, as you’ll see later in this chapter. 
+
+### 6.2.1 A prior is born 
+
+We will have a lot of scientific information to guide model construction
+
+Lets do that here:
+We know that the plants at tiem t = 1 should be taller than at time t =0, whatever scale they are measured on. 
+  - So if we put the parameters on a scale of proportion of height at time t= 0, rather than on the absolute scale of the data, we can set the priors more easily.
+  
+  Right now lets focus only on the height variables, ignoring the predictor variables 
+  
+We might have a model like this 
+
+$$
+h_{1,i} \sim \mathrm{Normal(\mu_i \sigma)} \\ 
+\mu_i = h_{0,i} \times p
+$$
+
+Lets look at the prior distribution 
+
+```{r, R code 6.14}
+sim_p <- rlnorm(1e4, 0, 0.25)
+precis(data.frame(sim_p))
+```
+
+So this prior expects anything from 40% shrinkage up to 50% growth. 
+
+Lets fit it to see how it just measures the average growth in the experiment. 
+
+```{r, R code 6.15}
+m6.6 <- quap(
+  alist(
+    h1 ~ dnorm(mu, sigma),
+    mu <- h0*p,
+    p ~ dlnorm(0, 0.25),
+    sigma ~ dexp(1)
+  ), data = d
+)
+precis(m6.6)
+```
+
+About 40% growth on average. Now to include the treatment and fungus variables.
+
+The parameters for these variables will also be on the proportion scale.
+They will be *changes* in proportional growth.
+
+The priors are INSANELY flat 
+
+```{r, R code 6.16}
+m6.7 <- quap(
+  alist(
+    h1 ~ dnorm( mu , sigma ),
+    mu <- h0 * p,
+    p <- a + bt*treatment + bf*fungus,
+    a ~ dlnorm( 0 , 0.2 ) ,
+    bt ~ dnorm( 0 , 0.5 ),
+    bf ~ dnorm( 0 , 0.5 ),
+    sigma ~ dexp( 1 )
+    ), data=d 
+  )
+
+
+precis(m6.7)
+
+```
+
+The "a" parameter here is the same "p" as before. And it has nearly the same posterior 
+
+Treatment is not associated with growth (at zero, and pretty tight around it)
+Fungus hurts growth.
+
+**We know treatment matters, because of how we built the simulation, so what happened here?**
+
+### 6.2.2 Blocked by Consequence
+
+The problem is that fungus is mostly a consequence of treatment. - Model is saying: *Once we already know whether or not a plant developed fungus, does soil treatment matter?*
+
+To measure treatments effect, we should omit the post-treatment variable fungus.
+```{r, R code 6.17}
+m6.8 <- quap(
+  alist(
+    h1 ~ dnorm( mu , sigma ),
+    mu <- h0 * p,
+    p <- a + bt*treatment,
+    a ~ dlnorm( 0 , 0.2 ),
+    bt ~ dnorm( 0 , 0.5 ),
+    sigma ~ dexp( 1 )
+), data=d )
+
+
+precis(m6.8)
+```
+
+Now the impact of treatment is clearly positive, as it should be. 
+
+It makes sense to control for pre-treatment differences, like the initial height h0, that might mask the causal influence of treatment. But including post-treatment variables can actually mask the treatment itself
+
+Lets see it with a DAG
+
+```{r, R code 6.18}
+library(dagitty)
+
+
+plant_dag <- dagitty("dag {
+  
+  H_0 -> H_1
+  
+  F -> H_1
+  
+  T -> F
+  
+  }")
+
+
+coordinates( plant_dag ) <- list( x=c(H_0=0,T=2,F=1.5,H_1=1),
+                                  
+                                  y=c(H_0=0,T=0,F=0,H_1=0) )
+
+
+drawdag( plant_dag )
+```
+
+**When we include F, the post-treatment effect, in the model, we end up blocking the path from the treatment to the outcome.**
+
+Model m6.7 misleads because it asks the wrong question, not because it would make poor predictions.
+
+We need multiple models because they help us understand causal paths, not just so we can choose one or another for prediction.
+
+## 6.3 Collider Bias 
+
+Collider variable example from the beginning of the chapter 
+
+Trustworthiness -----> Selection <----- Newsworthiness 
+
+Once you learn that a proposal has been selected, then learning its trustworthiness also provides information about its newsworthiness 
+
+Why? --> Because if a proposal with low trustworthiness was selected, it would have to have high newsworthiness. Otherwise it would not have been selected.
+
+**This generates the negative association we saw earlier** 
+
+### 6.3.1 Collider of false sorrow
+
+Controlling for a plausible confound can actually bias inference about the influence of the variable on the other side of the collision. 
+
+If you condition on your collider variable, then it will induce a statistical association between the two variables on either side of it. This can mislead us to think that the other two variables are corellated 
+
+Lets consider a multiple regression model aimed at inferring the influence of age on happiness, while controlling for marraige status.
+
+```{r, R code 6.22}
+library(rethinking)
+
+
+d <- sim_happiness( seed=1977 , N_years=1000 )
+
+# Focusing only on the adult sample 
+d2 <- d[d$age>17, ] 
+
+d2$A <- (d2$age - 18) / (65/18)
+```
+
+Now this new variable A ranges from 0 (18 yrs old) to 1 (65 yrs old)
+
+Now writing the model
+```{r, R code 6.23}
+d2$mid <- d2$married + 1
+
+
+m6.9 <- quap(
+  alist(
+    happiness ~ dnorm( mu , sigma ),
+    mu <- a[mid] + bA*A,
+    a[mid] ~ dnorm( 0 , 1 ),
+    bA ~ dnorm( 0 , 2 ) ,
+    sigma ~ dexp(1)
+    ) , data=d2 
+  )
+
+
+precis(m6.9,depth=2)
+```
+
+The model is quite sure that age is negatively associated with happiness. 
+
+Lets compare it to a model that omits marriage status. 
+
+Doing it, and comparing the marginal distributions 
+
+```{r, R code 6.24}
+m6.10 <- quap(
+  alist(
+    happiness ~ dnorm( mu , sigma ),
+    mu <- a + bA*A,
+    a ~ dnorm( 0 , 1 ),
+    bA ~ dnorm( 0 , 2 ),
+    sigma ~ dexp(1)
+    ) , data=d2 )
+
+
+precis(m6.10)
+```
+
+This model finds no association between age and happiness. 
+
+This is exactly what we should expect when we condition a collider. The collider is marraige status. 
+
+When we condition on marraige status, we induce a spurious association between both age and happiness.
+
+**If you dont have a causal model, then you cant make inferences from a multiple regression**
+
+### 6.3.2 The haunted DAG 
+
+Collider bias results from conditioning on a common consequence. 
+
+It may not always be so easy to see a potential collider, because there may be unmeasured causes.
+
+Suppose for example that we want to infer the direct influence of both parents (P) and grandparents (G) on the educational achievement of children (C).
+
+G-->P, P-->C, and G-->C
+
+But suppose there are unmeasured, common influences on parents and their children, such as neighborhoods (U) that are not shared by grandparents.
+
+now U-->P and U-->C
+
+Now P is a common consequence of G and U, so if we condition on P, it will bias the inference about G-->, *even if we never get to measure U*
+
+Lets do an example:
+1. P is some function of G and U
+2. C is some function of G, P, and U
+3. G and U are not functions of any other known variables 
+
+We're inventing a strength of association here. 
+
+```{r, R code 6.25}
+
+N <- 200 # number of G-P-C triads
+
+b_GP <- 1 # direct effect of G on P 
+
+b_GC <- 0 # direct effect of G on C
+
+b_PC <- 1 # direct effect of P on C
+
+b_U <- 2 # direct effect of U on P and C
+
+```
+
+Consider these slopes in a regression model. 
+
+Now we use these slopes to draw random observations:
+
+```{r, R code 6.26}
+set.seed(1)
+
+
+U <- 2*rbern( N , 0.5 ) - 1 # rbern makes the effect of U binary 
+
+
+G <- rnorm( N )
+
+
+P <- rnorm( N , b_GP*G + b_U*U )
+
+
+C <- rnorm( N , b_PC*P + b_GC*G + b_U*U )
+
+
+d <- data.frame( C=C , P=P , G=G , U=U )
+
+```
+
+Now what happens when we try to infer the influence of grandparents? Since some of the total effect of grandparents passes through parents, we realize we need to control for parents. Here is a simple regression of C on P and G.
+
+```{r, R code 6.27}
+m6.11 <- quap(
+  alist(
+    C ~ dnorm(mu, sigma),
+    mu <- a + b_PC*P + b_GC*G,
+    a ~ dnorm(0, 1),
+    c(b_PC,b_GC) ~ dnorm(0, 1),
+    sigma ~ dexp(1)
+  ), data = d
+)
+
+precis(m6.11)
+```
+
+The inferred effect of parents looks too big, almost twice as large as it should be.
+
+Because some of the correlation between P and C is due to U, and the model doesn't know about U
+
+More surprising is the model expects that the direct effect of G is to hurt their grandkids 
+
+Why does this negative association exist?
+
+It exists because, once we know P, learning G invisibly tells us about the neighborhood U, and U is associated with the outcome C.
+
+So consider two different parents with the same education level, say for example at the median 50th centile. One of these parents has a highly educated grandparent. The other has a poorly educated grandparent. The only probable way, in this example, for these parents to have the same education is if they live in different types of neighborhoods. 
+
+The unmeasured U makes our P a collider, and conditioning on P produces collider bias. 
+
+What can we do? **You have to measure U** 
+
+If you measure U and include it in the model like McElreath did, it reverses the correlation of P.
+
+To know whether the reversal of the association correctly reflects causation, we need something more than just a statistical model. 
+
+
+
+
+
+
+
+
+
+
+
