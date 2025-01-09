@@ -26,7 +26,9 @@ Goals for today:
 
 
 ## Bayes' Rule 
+
 The general form of Bayes' Rule is shown here:
+
 $$
 Pr(A|B) = \frac{Pr(B|A) Pr(A)}{Pr(B)}
 $$
@@ -34,6 +36,7 @@ $$
 It gives as output the probability of event A given that we have observed event B. It takes as input the total probabilities of A and B, and the opposite conditional probability, that B happens given an observation of A. There are a lot of ways to think about how these pieces come together, and I have drawn some of them out in the additional file and on the board during class.
 
 Remember that a total probability can be found by summing the component conditional probabilities. 
+
 $$
 Pr(B) = \sum_{i} Pr(B|p_i) Pr(p_i)
 $$
@@ -77,6 +80,12 @@ $$
 If covid is common, how likely is it that I have covid given that I have symptoms?
 $$
 Pr(\mathrm{covid}|\mathrm{symptoms})= \frac{ 0.3 * 0.1  }{0.3 * 0.1  + 1 * 0.02  } = 0.6
+$$
+
+Okay so given that you can have covid and the flu, given that you have symptoms is. I was not listening during lecture so this is probably so wrong 
+
+$$
+Pr(both|symptoms)=\frac{Pr(both)Pr(symptoms)}{Pr(both)Pr(symptoms)+ Pr(symptoms|covid)*Pr(symptoms) + Pr(symptoms|flu)*Pr(symptoms)}
 $$
 
 
