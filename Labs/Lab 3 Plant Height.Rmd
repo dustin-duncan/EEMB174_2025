@@ -1,0 +1,185 @@
+---
+title: "Lab 3"
+author: "Stephen R. Proulx"
+output: pdf_document
+---
+
+```{r setup, include=TRUE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(rethinking)
+library(bayesplot)
+```
+# Bayesian Statistical Modeling Winter 2022
+# Lab Exercise, Week 3
+
+*When is this lab due?* Labs are due on the Thursday after they are assigned. However, in many cases you can complete them during the lab period itself.   This assignment is due on Thursday, 1/30/2025. 
+
+
+
+### Medicago height data
+We'll use publicly available data from:  https://figshare.com/articles/dataset/Medicago_truncatula_plant_height_data/8018873
+The data we use are heights of the plant *Medicago truncatula*. The experiment in question was looking at the effect of plants on caterpillars, but we will just use the plant height data. It comes in multiple replicate observations, and we'll fit the mean and variance, using a normal distribution for the likelihood, for each replicate separately. 
+
+
+Load the data. The code below is written assuming this Rmd file is saved in the same folder as the data file *MedicagoHeights.Rds*. You can copy the MedicagoHeights data to the same folder as your Rmd file. (Or, alternatively, you can give the path to the data in the load function.)
+```{r ,eval=TRUE}
+load("MedicagoHeights.Rds")  
+view(plant.heights)
+```
+
+### Visualize and summarize the data
+Plot histograms or density plots of height for each replicate and summarize the means and standard deviations of each replicate. You may use the `filter` function to pick data from specific replicates, or add `fill=Replicate` to the `aes` directive in ggplot. like this:
+```{r ,eval=TRUE}
+ggplot(  plant.heights    ,aes(x=height,fill=Replicate))  +
+  geom_density(alpha=0.5)
+```
+
+
+### Summarize the replicates
+Summaries can be done using dplyr or by first subsetting the data to get each replicate and then using precis or mean and variance commands. 
+
+```{r ,eval=TRUE}
+plant.heights %>%
+  group_by(Replicate) %>%
+  summarise(mean=mean(height),  sd=sd(height)) 
+```
+
+
+### Fit the different replicates and see how they compare
+We'll use a grid approximation to fit the means and standard deviations for each replicate separately. To get you started we'll define the log likelihood function. It requires that the height data be in a dataframe called `dataset` and a column called `height`. 
+
+#### Prior simulation 
+
+```{r}
+nsamps = 1e4
+
+rep1_prior_sim = tibble(mu = rnorm(nsamps, mean = 100.67, sd = 25.35), 
+                        sigma = runif(nsamps, min = 0, max = 5)) %>% 
+  mutate(y = rnorm(n(), mean = mu, sd = sigma))
+
+ggplot(data=rep1_prior_sim, aes(x=y))+ geom_density()
+```
+
+
+```{r define_like_function ,eval=TRUE}
+
+height_loglik_f <- function(mu_input,sigma_input){
+  sum(
+    dnorm(dataset$height, mean=mu_input, sd=sigma_input,
+  log=TRUE ))
+}
+
+
+height_loglik_f_vec <- Vectorize(height_loglik_f)
+```
+
+
+Now define a grid of $\mu$ and $\sigma$ values and then go through the same steps that we did in class to calculate the posterior probability for each $\mu$ and $\sigma$ pair. Do this seperately for each replicate in the dataset. In order to use the first replicate you would do:
+
+```{r ,eval=TRUE}
+dataset <- filter(plant.heights, Replicate == "Rep1")  # dataset is replicate 1
+
+# Define your grid 
+set.seed(100)
+
+n = 200
+
+rep1_grid = tibble( mu = seq(from=90, to = 120, length.out=n),
+                    sigma = seq(from=15, to=40, length.out = n)) %>% 
+  expand(mu, sigma)
+
+# Compute posterior 
+rep1_post = rep1_grid %>% 
+  mutate(log_likelihood = height_loglik_f_vec(mu, sigma),
+         log_prior_mu = dnorm(mu, 100, 20, log=TRUE),
+         log_prior_sigma = dunif(sigma, min=0, max=50, log=TRUE),
+         raw_log_posterior = log_likelihood + log_prior_mu + log_prior_sigma,
+         log_posterior = raw_log_posterior - max(raw_log_posterior),
+         raw_posterior = exp(log_posterior),
+         posterior = raw_posterior/sum(raw_posterior))
+
+# Check your work 
+sum(rep1_post$posterior)
+```
+
+
+### Quantify the posterior distribution
+Use the methods you have available to quantify the posterior distribution.
+
+```{r}
+rep1_quant <- tibble(mean_mu = mean(rep1_post$mu),
+                     median_mu = median(rep1_post$mu),
+                     quantupper_mu = quantile(rep1_post$mu, 1 - 0.05),
+                     quantlower_mu = quantile(rep1_post$mu, 0.05),
+                     HPDI_mu = HPDI(rep1_post$mu, prob = 0.66),
+                     mean_sigma = mean(rep1_post$sigma),
+                     median_sigma = median(rep1_post$sigma),
+                     quantupper_sigma = quantile(rep1_post$sigma, 1 - 0.05),
+                     quantlower_sigma = quantile(rep1_post$sigma, 0.05),
+                     HPDI_sigma = HPDI(rep1_post$sigma, prob = 0.66))
+```
+
+
+
+### Posterior simulations
+
+Use the fitted model from replicate 1 to create a posterior simulation. This means that you will sample the values of $\mu$ and $\sigma$, and then produce an observation of 98 plant heights (this is how many observations there are of each replicate), and find the mean of this simulated dataset. Simulate this 1,000 times, and compare the distribution of this mean to the actual mean of replicate 2. Describe what you see, is it what you expected?
+
+$$
+\mu \int
+$$
+
+```{r}
+rep1_pos_sample <- sample_n(rep1_post, size = 10000, weight = posterior, replace = TRUE) %>% 
+  select(mu, sigma) 
+
+rep1_simulation = rep1_pos_sample %>% 
+  
+
+rep1_simulation <- tibble(mu = rnorm(98, mean = mean(rep1_pos_sample$mu), sd = mean(rep1_pos_sample$sigma)),
+                   sigma = runif(98, min = min(rep1_pos_sample$sigma), max = max(rep1_pos_sample$sigma))) %>%
+  mutate(predicted_height = rnorm(n(), mean = mu, sd = sigma),
+         replicate = "Rep1", 
+         type = "predicted")
+
+
+
+
+
+# Plotting predicted heights against actual data
+ggplot()  +
+  geom_density(data = rep1_simulation ,aes(x=predicted_height), fill = "forestgreen", alpha=0.5) + 
+  geom_density(data = dataset, aes(x = height), fill = "tan", alpha = 0.5) +
+  xlim(0, 250) + 
+  labs(x = "Predicted Height Vs Observed Height", y = "Density of Observations", title = "Plotting Predicted Medicago Heights (green) against Observed Heights (tan)", fill = c("Predicted", "Observed"))
+```
+
+#### Quap to check work 
+
+```{r}
+m.1 <- quap( alist(
+  height ~ dnorm(mu, sigma), 
+  mu ~ dnorm(100, 25),
+  sigma ~ dunif(0, 50)
+), data = dataset
+)
+
+precis(m.1)
+
+vcov(m.1)
+diag( vcov( m.1 ))
+
+
+cov2cor( vcov( m.1 ) )
+
+post <- extract.samples(m.1, n = 1e4)
+head(post)
+
+plot(post)
+```
+
+### Extra credit
+Do the same procedure for the other replicates. What can you say is similar or different about the replicates? Are there any anomalies?
+

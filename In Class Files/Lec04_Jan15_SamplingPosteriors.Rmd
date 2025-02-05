@@ -132,18 +132,24 @@ Here is the code to create a grid approximation of the posterior probablity dens
 ```{r}
 data=tibble(Ws=6,Ts=9)
 
-posterior_table <- tibble(p_w_proposed=seq(from=0, to=1, by=0.01))%>%
+posterior_table <- tibble(p_w_proposed=seq(from=0, to=1, by=0.001))%>%
   mutate( likelihood= dbinom(data$Ws,size=data$Ts,prob=p_w_proposed),
           prior=1/n(),
           raw_posterior = likelihood * prior , 
           posterior = raw_posterior/sum(raw_posterior))
 
+test = tibble(diff = posterior_table1$posterior - posterior_table2$posterior)
+
 ```
 
 ```{r}
-ggplot(data=posterior_table, aes(x=p_w_proposed, y=posterior))+
+ggplot(data=posterior_table1, aes(x=p_w_proposed, y=posterior))+
   geom_line(color="red")+
   geom_line(aes(x=p_w_proposed, y=prior) , color="blue")
+
+ggplot(data=posterior_table2, aes(x=p_w_proposed, y=posterior))+
+  geom_line(color="red") + 
+  geom_line(aes(x=p_w_proposed, y=prior/1000) , color="blue")
 ```
  
 
